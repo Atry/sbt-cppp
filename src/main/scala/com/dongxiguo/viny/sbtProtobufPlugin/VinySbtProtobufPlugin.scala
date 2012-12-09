@@ -6,25 +6,102 @@ import sbt._
 import java.io.File
 
 final object VinySbtProtobufPlugin extends Plugin {
-  
+
   // TODO: clean
 
   final val protocCommand = SettingKey[String]("protoc-command", "protoc executable")
 
   final val protoc = TaskKey[Seq[File]]("protoc", "Convert proto to java.")
 
-  final val packageProto = TaskKey[File]("package-proto", "Package all proto source files.")
+  //  final val packageProto = TaskKey[File]("package-proto", "Package all proto source files.")
 
-  final val unmanagedInclude = TaskKey[File]("unmanaged-include", "The default directory for manually managed included protos.")
+  final val unmanagedInclude = SettingKey[File]("unmanaged-include", "The default directory for manually managed included protos.")
+
+  final val Protobuf = config("protobuf")
+
+  final val TestProtobuf = config("test-protobuf")
 
   override final def globalSettings =
     super.globalSettings :+ (protocCommand := "protoc")
 
-  private def protoSettings(task: Scoped) = {
-    sbt.inTask(task)(
+  final def protocSetting(
+    protobufConfiguration: Configuration,
+    injectConfiguration: Configuration) =
+    protoc in injectConfiguration <<= (
+      crossTarget in protobufConfiguration,
+      dependencyClasspath in protobufConfiguration,
+      cacheDirectory in protobufConfiguration,
+      sourceManaged in injectConfiguration,
+      protocCommand in injectConfiguration,
+      sources in protobufConfiguration,
+      sourceDirectories in protobufConfiguration,
+      streams in protobufConfiguration) map { (target, includes, cache, sourceManaged, protocCommand, protoSources, protoSourceDirectories, streams) =>
+        val cachedTranfer = FileFunction.cached(cache / "protoc", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { (in: Set[File]) =>
+          IO.withTemporaryDirectory { temporaryDirectory =>
+            val unpack = FileFunction.cached(cache / "unpacked_include", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { protoJars: Set[File] =>
+              for {
+                protoJar <- protoJars
+                // TODO: Filter功能
+                output <- IO.unzip(protoJar, target / "unpacked_include")
+              } yield output
+            }
+            val (unpacking, rawIncludes) =
+              includes.partition { _.data.getName.endsWith(".jar") }
+            val unpacked = unpack(unpacking.map { _.data }(collection.breakOut))
+            val unpackedIncludes = if (unpacked.isEmpty) {
+              Nil
+            } else {
+              Seq("--proto_path=" + (target / "unpacked_include").getPath)
+            }
+
+            val includeSourcePath = for {
+              directory <- protoSourceDirectories
+              if directory.exists
+            } yield "--proto_path=" + directory.getPath
+            val rawIncludesPath = for {
+              attributedDirectory <- rawIncludes
+              if attributedDirectory.data.exists
+            } yield "--proto_path=" + attributedDirectory.data.getPath
+            val processBuilder =
+              Seq(
+                protocCommand,
+                "--java_out=" + temporaryDirectory.getPath) ++
+                includeSourcePath ++
+                rawIncludesPath ++
+                unpackedIncludes ++
+                in.map { _.getPath }
+            streams.log.info(processBuilder.mkString("\"", "\" \"", "\""))
+            processBuilder !< streams.log match {
+              case 0 => {
+                val moveMapping = (temporaryDirectory ** globFilter("*.java")) x {
+                  _.relativeTo(temporaryDirectory).map {
+                    sourceManaged / _.getPath
+                  }
+                }
+                IO.move(moveMapping)
+                moveMapping.map { _._2 }(collection.breakOut)
+              }
+              case result => {
+                throw new MessageOnlyException("protoc returns " + result)
+              }
+            }
+          }
+        }
+        cachedTranfer(protoSources.toSet).toSeq
+      }
+
+  final val baseProtobufSettings =
+    Defaults.configTasks ++
+      Defaults.configPaths ++
+      Classpaths.configSettings ++
+      Defaults.packageTaskSettings(packageSrc, Defaults.packageSrcMappings) ++
       Seq(
-        unmanagedInclude <<= baseDirectory map { _ / "include" / "protobuf" },
-        managedClasspath <<= (classpathConfiguration, classpathTypes, update) map {
+        exportedProducts <<=
+          (products.task, packageSrc.task, exportJars, compile) flatMap { (psTask, pkgTask, useJars, analysis) =>
+            (if (useJars) Seq(pkgTask).join else psTask) map { _ map { f => Classpaths.analyzed(f, analysis) } }
+          },
+        unmanagedInclude <<= baseDirectory { _ / "include" / "protobuf" },
+        managedClasspath <<= (configuration, classpathTypes, update) map {
           (config: Configuration, jarTypes: Set[String], up: UpdateReport) =>
             up.filter(configurationFilter(config.name) && artifactFilter(classifier = "proto", `type` = "proto")).toSeq.map {
               case (conf, module, art, file) => {
@@ -33,122 +110,33 @@ final object VinySbtProtobufPlugin extends Plugin {
             } distinct
         },
         unmanagedClasspath <<=
-          (thisProjectRef, configuration, settingsData, buildDependencies) flatMap { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
-            Classpaths.interDependencies(projectRef, deps, conf, conf, data, true, { (dep: ResolvedReference, conf: String, data: Settings[Scope]) =>
-              (unmanagedInclude in (dep, ConfigKey(conf), task)).get(data) match {
-                case None =>
-                  constant(Nil)
-                case Some(include) => {
-                  include map { include =>
-                    Seq(include).classpath
-                  }
-                }
-              }
-            })
+          (thisProjectRef, configuration, settingsData, buildDependencies) map { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
+            (for {
+              ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
+              unmanagedInclude <- (unmanagedInclude in (dep, conf)).get(data)
+            } yield unmanagedInclude).classpath
           },
         internalDependencyClasspath <<=
-          (thisProjectRef, classpathConfiguration, configuration, settingsData, buildDependencies) flatMap { (projectRef: ProjectRef, conf: Configuration, self: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
-            Classpaths.interDependencies(projectRef, deps, conf, self, data, false, { (dep: ResolvedReference, conf: String, data: Settings[Scope]) =>
-              if ((packageProto in (dep, ConfigKey(conf))).get(data).isDefined) {
-                (sourceDirectories in (dep, ConfigKey(conf), packageProto)).get(data) match {
-                  case None =>
-                    constant(Nil)
-                  case Some(sourceDirectories) => {
-                    constant(sourceDirectories.classpath)
-                  }
-                }
-              } else {
-                constant(Nil)
-              }
-            })
+          (thisProjectRef, configuration, settingsData, buildDependencies) map { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
+            (for {
+              ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
+              sourceDirectoriesOption = (sourceDirectories in (dep, conf)).get(data)
+              if sourceDirectoriesOption.isDefined
+              directory <- sourceDirectoriesOption.get
+            } yield directory).classpath
           },
-        sourceManaged <<= (crossTarget, configuration) { (target, config) =>
-          target / "protobuf-managed" / Defaults.nameForSrc(config.name)
-        },
-        includeFilter in unmanagedSources := "*.proto",
-        unmanagedSourceDirectories <<= sourceDirectory { sd => Seq(sd / "protobuf") }))
-  }
+        unmanagedSourceDirectories <<= sourceDirectory { Seq(_) },
+        includeFilter in unmanagedSources := "*.proto")
 
-  final def baseZipProtoSettings =
-    sbt.inTask(packageProto)(Classpaths.configSettings ++ Defaults.configTasks ++ Defaults.configPaths) ++
-      protoSettings(packageProto) ++
-      Defaults.packageTaskSettings(packageProto, Defaults.sourceMappings) :+
-      (artifact in packageProto ~= {
-        _.copy(`type` = "proto", classifier = Some("proto"))
-      })
-
-  final def baseProtocSettings =
-    sbt.inTask(protoc)(Classpaths.configSettings ++ Defaults.configTasks ++ Defaults.configPaths) ++
-      protoSettings(protoc) ++
+  final val protobufSettings =
+    sbt.addArtifact(artifact in packageSrc in Protobuf, packageSrc in Protobuf) ++
+      inConfig(Protobuf)(baseProtobufSettings) ++
+      inConfig(TestProtobuf)(baseProtobufSettings) ++
       Seq(
-        protoc <<= (
-          crossTarget in protoc,
-          dependencyClasspath in protoc,
-          cacheDirectory in protoc,
-          sourceManaged,
-          protocCommand,
-          sources in protoc,
-          sourceDirectories in protoc,
-          streams in protoc) map { (target, includes, cache, sourceManaged, protocCommand, protoSources, protoSourceDirectories, streams) =>
-            val cachedTranfer = FileFunction.cached(cache / "protoc", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { (in: Set[File]) =>
-              IO.withTemporaryDirectory { temporaryDirectory =>
-                val unpack = FileFunction.cached(cache / "unpacked_include", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { protoJars: Set[File] =>
-                  for {
-                    protoJar <- protoJars
-                    // TODO: Filter功能
-                    output <- IO.unzip(protoJar, target / "unpacked_include")
-                  } yield output
-                }
-                val (unpacking, rawIncludes) =
-                  includes.partition { _.data.getName.endsWith(".jar") }
-                val unpacked = unpack(unpacking.map { _.data }(collection.breakOut))
-                val unpackedIncludes = if (unpacked.isEmpty) {
-                  Nil
-                } else {
-                  Seq("--proto_path=" + (target / "unpacked_include").getPath)
-                }
-
-                val includeSourcePath = for {
-                  directory <- protoSourceDirectories
-                  if directory.exists
-                } yield "--proto_path=" + directory.getPath
-                val rawIncludesPath = for {
-                  attributedDirectory <- rawIncludes
-                  if attributedDirectory.data.exists
-                } yield "--proto_path=" + attributedDirectory.data.getPath
-                val processBuilder =
-                  Seq(
-                    protocCommand,
-                    "--java_out=" + temporaryDirectory.getPath) ++
-                    includeSourcePath ++
-                    rawIncludesPath ++
-                    unpackedIncludes ++
-                    in.map { _.getPath }
-                streams.log.info(processBuilder.mkString("\"", "\" \"", "\""))
-                processBuilder !< streams.log match {
-                  case 0 => {
-                    val moveMapping = (temporaryDirectory ** globFilter("*.java")) x {
-                      _.relativeTo(temporaryDirectory).map {
-                        sourceManaged / _.getPath
-                      }
-                    }
-                    IO.move(moveMapping)
-                    moveMapping.map { _._2 }(collection.breakOut)
-                  }
-                  case result => {
-                    throw new MessageOnlyException("protoc returns " + result)
-                  }
-                }
-              }
-            }
-            cachedTranfer(protoSources.toSet).toSeq
-          },
-        sourceGenerators <+= protoc)
-
-  val protobufSettings =
-    sbt.addArtifact(artifact in packageProto in Compile, packageProto in Compile) ++
-      inConfig(Compile)(baseZipProtoSettings ++ baseProtocSettings)
-
+        protocSetting(Protobuf, Compile),
+        sourceGenerators in Compile <+= protoc in Compile,
+        protocSetting(TestProtobuf, Test),
+        sourceGenerators in Test <+= protoc in Test)
 }
 
 // vim: set ts=2 sw=2 et:
