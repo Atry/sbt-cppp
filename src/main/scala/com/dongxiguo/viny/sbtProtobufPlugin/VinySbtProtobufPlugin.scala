@@ -110,11 +110,11 @@ final object VinySbtProtobufPlugin extends Plugin {
             } distinct
         },
         unmanagedClasspath <<=
-          (thisProjectRef, configuration, settingsData, buildDependencies) map { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
-            (for {
+          (unmanagedInclude, thisProjectRef, configuration, settingsData, buildDependencies) map { (currrentInclude, projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
+            (currrentInclude +: (for {
               ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
               unmanagedInclude <- (unmanagedInclude in (dep, conf)).get(data)
-            } yield unmanagedInclude).classpath
+            } yield unmanagedInclude)).classpath
           },
         internalDependencyClasspath <<=
           (thisProjectRef, configuration, settingsData, buildDependencies) map { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
