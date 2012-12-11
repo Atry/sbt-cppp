@@ -107,7 +107,7 @@ final object VinySbtProtobufPlugin extends Plugin {
               case (conf, module, art, file) => {
                 Attributed(file)(AttributeMap.empty.put(artifact.key, art).put(moduleID.key, module).put(configuration.key, config))
               }
-            } distinct
+            }.distinct
         },
         unmanagedClasspath <<=
           (unmanagedInclude, thisProjectRef, configuration, settingsData, buildDependencies) map { (currrentInclude, projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
