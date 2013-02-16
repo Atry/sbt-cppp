@@ -29,7 +29,7 @@ final object VinySbtProtobufPlugin extends Plugin {
     injectConfiguration: Configuration) =
     protoc in injectConfiguration <<= (
       crossTarget in protobufConfiguration,
-      dependencyClasspath in protobufConfiguration,
+      dependencyClasspath in protobufConfiguration, // FIXME: 此处dependencyClasspath不能递归找到依赖项目的依赖项目
       cacheDirectory in protobufConfiguration,
       sourceManaged in injectConfiguration,
       protocCommand in injectConfiguration,
