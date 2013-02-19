@@ -13,8 +13,6 @@ final object VinySbtProtobufPlugin extends Plugin {
 
   final val protoc = TaskKey[Seq[File]]("protoc", "Convert proto to java.")
 
-  //  final val packageProto = TaskKey[File]("package-proto", "Package all proto source files.")
-
   final val unmanagedInclude = SettingKey[File]("unmanaged-include", "The default directory for manually managed included protos.")
 
   final val Protobuf = config("protobuf")
@@ -35,8 +33,12 @@ final object VinySbtProtobufPlugin extends Plugin {
       protocCommand in injectConfiguration,
       sources in protobufConfiguration,
       sourceDirectories in protobufConfiguration,
-      streams in protobufConfiguration) map { (target, includes, cache, sourceManaged, protocCommand, protoSources, protoSourceDirectories, streams) =>
+      streams in protobufConfiguration,
+      thisProjectRef in protobufConfiguration,
+      buildDependencies in protobufConfiguration,
+      settingsData in protobufConfiguration) map { (target, includes, cache, sourceManaged, protocCommand, protoSources, protoSourceDirectories, streams, projectRef, deps, data) =>
         val cachedTranfer = FileFunction.cached(cache / "protoc", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { (in: Set[File]) =>
+
           IO.withTemporaryDirectory { temporaryDirectory =>
             val unpack = FileFunction.cached(cache / "unpacked_include", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { protoJars: Set[File] =>
               for {
@@ -54,6 +56,12 @@ final object VinySbtProtobufPlugin extends Plugin {
               Seq("--proto_path=" + (target / "unpacked_include").getPath)
             }
 
+            val dependencyIncludes = for {
+              ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
+              ui <- (unmanagedInclude in (dep, protobufConfiguration)).get(data)
+              if ui.exists
+            } yield "--proto_path=" + ui.getPath
+
             val includeSourcePath = for {
               directory <- protoSourceDirectories
               if directory.exists
@@ -69,6 +77,7 @@ final object VinySbtProtobufPlugin extends Plugin {
                 includeSourcePath ++
                 rawIncludesPath ++
                 unpackedIncludes ++
+                dependencyIncludes ++
                 in.map { _.getPath }
             streams.log.info(processBuilder.mkString("\"", "\" \"", "\""))
             processBuilder !< streams.log match {
@@ -94,47 +103,53 @@ final object VinySbtProtobufPlugin extends Plugin {
     Defaults.configTasks ++
       Defaults.configPaths ++
       Classpaths.configSettings ++
-      Defaults.packageTaskSettings(packageSrc, Defaults.packageSrcMappings) ++
-      Seq(
-        exportedProducts <<=
-          (products.task, packageSrc.task, exportJars, compile) flatMap { (psTask, pkgTask, useJars, analysis) =>
-            (if (useJars) Seq(pkgTask).join else psTask) map { _ map { f => Classpaths.analyzed(f, analysis) } }
+      Defaults.packageTaskSettings(
+        packageBin,
+        Defaults.concatMappings(Defaults.sourceMappings,
+          unmanagedClasspath map { cp =>
+            for {
+              attributedPath <- cp
+              path = attributedPath.data
+              f <- path.***.get
+              r <- f.relativeTo(path)
+            } yield f -> r.getPath
+          })) ++
+        Seq(
+          exportedProducts <<=
+            (products.task, packageBin.task, exportJars, compile) flatMap { (psTask, pkgTask, useJars, analysis) =>
+              (if (useJars) Seq(pkgTask).join else psTask) map { _ map { f => Classpaths.analyzed(f, analysis) } }
+            },
+          unmanagedInclude <<= baseDirectory { _ / "include" / "protobuf" },
+          managedClasspath <<= (configuration, classpathTypes, update) map {
+            (config: Configuration, jarTypes: Set[String], up: UpdateReport) =>
+              up.filter(configurationFilter(config.name) && artifactFilter(classifier = config.name)).toSeq.map {
+                case (conf, module, art, file) => {
+                  Attributed(file)(AttributeMap.empty.put(artifact.key, art).put(moduleID.key, module).put(configuration.key, config))
+                }
+              }.distinct
           },
-        unmanagedInclude <<= baseDirectory { _ / "include" / "protobuf" },
-        managedClasspath <<= (configuration, classpathTypes, update) map {
-          (config: Configuration, jarTypes: Set[String], up: UpdateReport) =>
-            up.filter(configurationFilter(config.name) && artifactFilter(classifier = "proto", `type` = "proto")).toSeq.map {
-              case (conf, module, art, file) => {
-                Attributed(file)(AttributeMap.empty.put(artifact.key, art).put(moduleID.key, module).put(configuration.key, config))
-              }
-            }.distinct
-        },
-        unmanagedClasspath <<=
-          (unmanagedInclude, thisProjectRef, configuration, settingsData, buildDependencies) map { (currrentInclude, projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
-            (currrentInclude +: (for {
-              ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
-              unmanagedInclude <- (unmanagedInclude in (dep, conf)).get(data)
-            } yield unmanagedInclude)).classpath
-          },
-        internalDependencyClasspath <<=
-          (thisProjectRef, configuration, settingsData, buildDependencies) map { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
-            (for {
-              ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
-              sourceDirectoriesOption = (sourceDirectories in (dep, conf)).get(data)
-              if sourceDirectoriesOption.isDefined
-              directory <- sourceDirectoriesOption.get
-            } yield directory).classpath
-          },
-        unmanagedSourceDirectories <<= sourceDirectory { Seq(_) },
-        includeFilter in unmanagedSources := "*.proto")
+          unmanagedClasspath <<= unmanagedInclude map { i => Seq(i).classpath },
+          internalDependencyClasspath <<=
+            (thisProjectRef, configuration, settingsData, buildDependencies) map { (projectRef: ProjectRef, conf: Configuration, data: Settings[Scope], deps: BuildDependencies) =>
+              (for {
+                ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
+                sourceDirectoriesOption = (sourceDirectories in (dep, conf)).get(data)
+                if sourceDirectoriesOption.isDefined
+                directory <- sourceDirectoriesOption.get
+              } yield directory).classpath
+            },
+          unmanagedSourceDirectories <<= sourceDirectory { Seq(_) },
+          includeFilter in unmanagedSources := "*.proto")
 
   final val protobufSettings =
-    sbt.addArtifact(artifact in packageSrc in Protobuf, packageSrc in Protobuf) ++
+    sbt.addArtifact(artifact in packageBin in Protobuf, packageBin in Protobuf) ++
       inConfig(Protobuf)(baseProtobufSettings) ++
       inConfig(TestProtobuf)(baseProtobufSettings) ++
       Seq(
+        ivyConfigurations += Protobuf,
         protocSetting(Protobuf, Compile),
         sourceGenerators in Compile <+= protoc in Compile,
+        ivyConfigurations += TestProtobuf,
         protocSetting(TestProtobuf, Test),
         sourceGenerators in Test <+= protoc in Test)
 }
