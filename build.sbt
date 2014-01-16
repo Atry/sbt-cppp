@@ -22,7 +22,7 @@ organization := "com.dongxiguo"
 
 scalacOptions += "-deprecation"
 
-version := "0.1.2"
+version := "0.1.3-SNAPSHOT"
 
 CrossBuilding.crossSbtVersions := Seq("0.12", "0.13")
 
