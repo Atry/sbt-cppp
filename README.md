@@ -1,6 +1,6 @@
 # sbt-cppp
 
-**sbt-cppp** (Sbt **C**ross-**P**roject **P**rotobuf **P**lugin) is a [Sbt](http://www.scala-sbt.org/) plugin to support [Protocol Buffers](http://code.google.com/p/protobuf/) in multi-project builds.
+**sbt-cppp** (**Sbt** **C**ross-**P**roject **P**rotobuf **P**lugin) is a [Sbt](http://www.scala-sbt.org/) plugin to support [Protocol Buffers](http://code.google.com/p/protobuf/) in multi-project builds.
 
 ## Usage
 
