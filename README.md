@@ -45,6 +45,6 @@ Create `src/main/scala/SampleMain.scala`:
 
 ## Further information
 
- * `sbt-cpp` is for sbt 0.12 or 0.13
+ * `sbt-cppp` is for sbt 0.12 or 0.13
  * If `project-foo` depends on `project-bar`, `project-bar/src/protobuf/` will be added into `protoc` include path when the plugin converts `project-foo/src/protobuf/*.proto` into `.java` files.
  * If you want to generate `.proto` files by some tools (instead of creating them manually), put `sourceGenerators in Protobuf += yourGenerator` in your `build.sbt`.
