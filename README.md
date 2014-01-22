@@ -1,6 +1,15 @@
 # sbt-cppp
 
-**sbt-cppp** (**Sbt** **C**ross-**P**roject **P**rotobuf **P**lugin) is a [Sbt](http://www.scala-sbt.org/) plugin to support [Protocol Buffers](http://code.google.com/p/protobuf/) in multi-project builds.
+**sbt-cppp** (**Sbt** **C**ross-**P**roject **P**rotobuf **P**lugin) is a [Sbt](http://www.scala-sbt.org/) plugin to support [Protocol Buffers](http://code.google.com/p/protobuf/), especially in multi-project builds.
+
+## Features
+
+`sbt-cppp` compiles `*.proto` into `.java` files. In addition, `sbt-cppp` provides some features missed in [sbt-protobuf](https://github.com/sbt/sbt-protobuf) or other protobuf plugins:
+
+* Jar packaging from `.proto` files.
+* Cross-project include path dependency management in multi-project builds.
+* Cross-library include path dependency management by auto-unzipping `.proto` files from jar packages.
+* Support for custom code generator to `.proto` files.
 
 ## Usage
 
@@ -45,6 +54,6 @@ Create `src/main/scala/SampleMain.scala`:
 
 ## Further information
 
- * `sbt-cpp` is for sbt 0.12 or 0.13
- * If `project-foo` depends on `project-bar`, `project-bar/src/protobuf/` will be added into `protoc` include path when the plugin converts `project-foo/src/protobuf/*.proto` into `.java` files.
+ * `sbt-cppp` is for sbt 0.12 or 0.13
+ * If `project-foo` depends on `project-bar`, `project-bar/src/protobuf/` will be added as a `protoc` include path when the plugin converts `project-foo/src/protobuf/*.proto` into `.java` files.
  * If you want to generate `.proto` files by some tools (instead of creating them manually), put `sourceGenerators in Protobuf += yourGenerator` in your `build.sbt`.
