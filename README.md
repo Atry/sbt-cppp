@@ -17,7 +17,7 @@
 
 Add the following line to your `project/plugins.sbt`:
 
-    addSbtPlugin("com.dongxiguo" % "sbt-cppp" % "0.1.2")
+    addSbtPlugin("com.dongxiguo" % "sbt-cppp" % "0.1.4")
 
 And add `protobufSettings` and `protobuf-java` dependency to your `build.sbt`:
 
