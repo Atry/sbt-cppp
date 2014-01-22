@@ -19,7 +19,7 @@ import sbt.Keys._
 import sbt._
 import java.io.File
 
-final object VinySbtProtobufPlugin extends Plugin {
+final object CpppPlugin extends Plugin {
 
   // TODO: clean
 
