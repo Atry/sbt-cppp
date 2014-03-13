@@ -37,7 +37,7 @@ Create `src/protobuf/sample_proto.proto`
       optional int32 sample_field = 1;
     }
 
-### Step 4: Use the `.proro` files in your source files.
+### Step 4: Use the `.proto` files in your source files.
 
 Create `src/main/scala/SampleMain.scala`:
 
