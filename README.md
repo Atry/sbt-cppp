@@ -7,8 +7,8 @@
 `sbt-cppp` compiles `*.proto` into `.java` files. In addition, `sbt-cppp` provides some features missed in [sbt-protobuf](https://github.com/sbt/sbt-protobuf) or other protobuf plugins:
 
 * Jar packaging from `.proto` files.
-* Cross-project include path dependency management in multi-project builds.
-* Cross-library include path dependency management by auto-unzipping `.proto` files from jar packages.
+* Cross-project `protoc` include path dependency management in multi-project builds.
+* Cross-library `protoc` include path dependency management by auto-unzipping `.proto` files from jar packages.
 * Support for custom code generator to `.proto` files.
 
 ## Usage
