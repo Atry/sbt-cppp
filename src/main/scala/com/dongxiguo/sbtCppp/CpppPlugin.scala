@@ -38,80 +38,74 @@ final object CpppPlugin extends Plugin {
 
   final def protocSetting(
     protobufConfiguration: Configuration,
-    injectConfiguration: Configuration) =
-    protoc in injectConfiguration <<= (
-      crossTarget in protobufConfiguration,
-      dependencyClasspath in protobufConfiguration, // FIXME: 此处dependencyClasspath不能递归找到依赖项目的依赖项目
-      cacheDirectory in protobufConfiguration,
-      sourceManaged in injectConfiguration,
-      protocCommand in injectConfiguration,
-      sources in protobufConfiguration,
-      sourceDirectories in protobufConfiguration,
-      streams in protobufConfiguration,
-      thisProjectRef in protobufConfiguration,
-      buildDependencies in protobufConfiguration,
-      settingsData in protobufConfiguration) map { (target, includes, cache, sourceManaged, protocCommand, protoSources, protoSourceDirectories, streams, projectRef, deps, data) =>
-        val cachedTranfer = FileFunction.cached(cache / "protoc", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { (in: Set[File]) =>
+    injectConfiguration: Configuration) = {
+    protoc in injectConfiguration := {
+      val includes = (dependencyClasspath in protobufConfiguration).value
+      val cache = (cacheDirectory in protobufConfiguration).value
+      val projectRef = (thisProjectRef in protobufConfiguration).value
+      val deps = (buildDependencies in protobufConfiguration).value
+      val data = (settingsData in protobufConfiguration).value
+      val cachedTranfer = FileFunction.cached(cache / "protoc", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { (in: Set[File]) =>
+        IO.withTemporaryDirectory { temporaryDirectory =>
+          val unpack = FileFunction.cached(cache / "unpacked_include", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { protoJars: Set[File] =>
+            for { 
+              protoJar <- protoJars
+              // TODO: Filter功能
+              output <- IO.unzip(protoJar, (crossTarget in protobufConfiguration).value / "unpacked_include")
+            } yield output
+          }
+          val (unpacking, rawIncludes) =
+            includes.partition { _.data.getName.endsWith(".jar") }
+          val unpacked = unpack(unpacking.map { _.data }(collection.breakOut))
+          val unpackedIncludes = if (unpacked.isEmpty) {
+            Nil
+          } else {
+            Seq("--proto_path=" + ((crossTarget in protobufConfiguration).value / "unpacked_include").getPath)
+          }
 
-          IO.withTemporaryDirectory { temporaryDirectory =>
-            val unpack = FileFunction.cached(cache / "unpacked_include", inStyle = FilesInfo.lastModified, outStyle = FilesInfo.exists) { protoJars: Set[File] =>
-              for {
-                protoJar <- protoJars
-                // TODO: Filter功能
-                output <- IO.unzip(protoJar, target / "unpacked_include")
-              } yield output
-            }
-            val (unpacking, rawIncludes) =
-              includes.partition { _.data.getName.endsWith(".jar") }
-            val unpacked = unpack(unpacking.map { _.data }(collection.breakOut))
-            val unpackedIncludes = if (unpacked.isEmpty) {
-              Nil
-            } else {
-              Seq("--proto_path=" + (target / "unpacked_include").getPath)
-            }
+          val dependencyIncludes = for {
+            ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
+            ui <- (unmanagedInclude in (dep, protobufConfiguration)).get(data)
+            if ui.exists
+          } yield "--proto_path=" + ui.getPath
 
-            val dependencyIncludes = for {
-              ResolvedClasspathDependency(dep, _) <- deps.classpath(projectRef)
-              ui <- (unmanagedInclude in (dep, protobufConfiguration)).get(data)
-              if ui.exists
-            } yield "--proto_path=" + ui.getPath
-
-            val includeSourcePath = for {
-              directory <- protoSourceDirectories
-              if directory.exists
-            } yield "--proto_path=" + directory.getPath
-            val rawIncludesPath = for {
-              attributedDirectory <- rawIncludes
-              if attributedDirectory.data.exists
-            } yield "--proto_path=" + attributedDirectory.data.getPath
-            val processBuilder =
-              Seq(
-                protocCommand,
-                "--java_out=" + temporaryDirectory.getPath) ++
-                includeSourcePath ++
-                rawIncludesPath ++
-                unpackedIncludes ++
-                dependencyIncludes ++
-                in.map { _.getPath }
-            streams.log.info(processBuilder.mkString("\"", "\" \"", "\""))
-            processBuilder !< streams.log match {
-              case 0 => {
-                val moveMapping = (temporaryDirectory ** globFilter("*.java")) x {
-                  _.relativeTo(temporaryDirectory).map {
-                    sourceManaged / _.getPath
-                  }
+          val includeSourcePath = for {
+            directory <- (sourceDirectories in protobufConfiguration).value
+            if directory.exists
+          } yield "--proto_path=" + directory.getPath
+          val rawIncludesPath = for {
+            attributedDirectory <- rawIncludes
+            if attributedDirectory.data.exists
+          } yield "--proto_path=" + attributedDirectory.data.getPath
+          val processBuilder =
+            Seq(
+              (protocCommand in injectConfiguration).value,
+              "--java_out=" + temporaryDirectory.getPath) ++
+              includeSourcePath ++
+              rawIncludesPath ++
+              unpackedIncludes ++
+              dependencyIncludes ++
+              in.map { _.getPath }
+          (streams in protobufConfiguration).value.log.info(processBuilder.mkString("\"", "\" \"", "\""))
+          processBuilder !< (streams in protobufConfiguration).value.log match {
+            case 0 => {
+              val moveMapping = (temporaryDirectory ** globFilter("*.java")) x {
+                _.relativeTo(temporaryDirectory).map {
+                  (sourceManaged in injectConfiguration).value / _.getPath
                 }
-                IO.move(moveMapping)
-                moveMapping.map { _._2 }(collection.breakOut)
               }
-              case result => {
-                throw new MessageOnlyException("protoc returns " + result)
-              }
+              IO.move(moveMapping)
+              moveMapping.map { _._2 }(collection.breakOut)
+            }
+            case result => {
+              throw new MessageOnlyException("protoc returns " + result)
             }
           }
         }
-        cachedTranfer(protoSources.toSet).toSeq
       }
+      cachedTranfer((sources in protobufConfiguration).value.toSet).toSeq
+    }
+  }
 
   final val baseProtobufSettings =
     Defaults.configTasks ++
