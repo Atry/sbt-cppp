@@ -27,7 +27,7 @@ And add `protobufSettings` and `protobuf-java` dependency to your `build.sbt`:
 
 ### Step 2: Install `protoc` into `$PATH`
 
-For windows, download at http://code.google.com/p/protobuf/downloads/detail?name=protoc-2.5.0-win32.zip. For most linux distributions, looking for `protobuf-compiler` package.
+For windows, download at http://code.google.com/p/protobuf/downloads/detail?name=protoc-2.5.0-win32.zip. For most linux distributions, look for `protobuf-compiler` package.
 
 ### Step 3: Create your `.proto` files.
 
