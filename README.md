@@ -1,5 +1,7 @@
 # sbt-cppp [![Codacy Badge](https://www.codacy.com/project/badge/e8ae44879bcf4bbb85277f8d0ddf93a5)](https://www.codacy.com/app/yangbo/sbt-cppp)
 
+[![Join the chat at https://gitter.im/Atry/sbt-cppp](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/Atry/sbt-cppp?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 **sbt-cppp** (**Sbt** <strong>C</strong>ross-<strong>P</strong>roject <strong>P</strong>rotobuf <strong>P</strong>lugin) is a [Sbt](http://www.scala-sbt.org/) plugin to support [Protocol Buffers](http://code.google.com/p/protobuf/), especially in multi-project builds.
 
 ## Features
